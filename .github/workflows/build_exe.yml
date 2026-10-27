@@ -1,0 +1,75 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows-exe:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies and PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build standalone EXE with PyInstaller (including built-in 7-Zip engine)
+        shell: pwsh
+        run: |
+          $addBinArgs = @()
+          if (Test-Path "C:\Program Files\7-Zip\7z.exe") {
+            $addBinArgs += "--add-binary"
+            $addBinArgs += "C:\Program Files\7-Zip\7z.exe;7z_bin"
+          }
+          if (Test-Path "C:\Program Files\7-Zip\7z.dll") {
+            $addBinArgs += "--add-binary"
+            $addBinArgs += "C:\Program Files\7-Zip\7z.dll;7z_bin"
+          }
+
+          pyinstaller --noconfirm --clean --onefile --windowed `
+            --name "GDriveBatchTool" `
+            --collect-submodules core `
+            --collect-submodules ui `
+            @addBinArgs `
+            main.py
+
+      - name: Upload EXE to GitHub Actions Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: GDriveBatchTool-Windows-EXE
+          path: dist/GDriveBatchTool.exe
+          if-no-files-found: error
+
+      - name: Publish EXE to GitHub Releases (on Tag or Main Push)
+        if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name == 'main' && 'latest' || github.ref_name == 'master' && 'latest' || github.ref_name }}
+          name: "Google Drive 批量分类上传 & 7z加密 & 批量清理工具 (${{ github.ref_name }})"
+          body: |
+            ### ☁️ Google Drive 批量分类上传 & 7z加密 & 谷歌表格归档 & 批量删除工具
+            - 下载下方附件 **`GDriveBatchTool.exe`** 即可在 Windows 电脑上直接双击运行（已内置 7-Zip 加密引擎，无需安装 Python 环境）。
+          files: |
+            dist/GDriveBatchTool.exe
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
